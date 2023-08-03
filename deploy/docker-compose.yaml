@@ -1,0 +1,14 @@
+services:
+  app:
+    image: eth-tx-crawler
+    build:
+      context: ../
+    environment:
+      NODE_URL: https://eth-mainnet.g.alchemy.com/v2/Zr3jViEDj-raP2WYoLF1HlwiJIuc86Aq  
+      REDIS_URL: rd:6379
+
+  rd:
+    image: redis:latest
+    ports:
+      # Allow host machine to inspect Redis data
+      - 6379:6379

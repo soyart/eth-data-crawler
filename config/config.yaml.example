@@ -1,0 +1,10 @@
+mode: txs
+node_url: https://eth-mainnet.g.alchemy.com/v2/Zr3jViEDj-raP2WYoLF1HlwiJIuc86Aq
+redis_url: localhost:6379
+
+addresses:
+ - 0x28c6c06298d514db089934071355e5743bf21d60
+
+from_block: 17065470
+to_block: 17065471
+batch_size: 10
