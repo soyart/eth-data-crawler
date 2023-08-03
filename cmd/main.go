@@ -189,8 +189,8 @@ func getAndSaveTxs(
 					tx := txs[i]
 
 					datas[i] = entity.EthData{
-						Hash: tx.Hash().Hex(),
-						Data: tx.Hash().Hex(),
+						Hash: strings.ToLower(tx.Hash().Hex()),
+						Data: strings.ToLower(tx.Hash().Hex()),
 					}
 				}
 
