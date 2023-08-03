@@ -57,5 +57,16 @@ docker compose -f ./deploy/docker-compose.yaml up -d
 The image is also available on Docker Hub
 repository [`artnoi/eth-tx-crawler`](https://hub.docker.com/r/artnoi/eth-tx-crawler).
 
+## Scaling
+
 Horizontal scaling is possible by using multiple different instances eth-data-crawler
 to track different contracts.
+
+Because Ethereum addresses are cryptographically random, we can be
+confident that the distribution of the hex addresses are uniform,
+thus allowing us to separate each Redis databases to a range of contracts,
+separated by addresses alphabetically.
+
+By having different pools for each different contract ranges (i.e. host `redis1`
+for contracts `0x0-0x3`, `redis2` for `0x3-0x7`, `redis3` for `0x8-0x11`,
+`redis4` for `0x12-0x15`), we can scale this pattern horizontally.
