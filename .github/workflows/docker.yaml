@@ -5,11 +5,18 @@ jobs:
   test:
     name: Test Go code  
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
-      - name: Run test template
-        uses: ./.github/workflows/test-template.yaml
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          check-latest: true
+
+      - name: Run tests
+        run: go test -v ./...
 
   docker:
     name: Build and push Docker image
