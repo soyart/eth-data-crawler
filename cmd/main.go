@@ -21,28 +21,11 @@ import (
 	"github.com/soyart/eth-tx-crawler/rdb"
 )
 
-// 2 modes are available
-type modeFunc func(
-	ctx context.Context,
-	logger *zap.Logger,
-	client *ethclient.Client,
-	addresses []common.Address,
-	fromBlock uint64,
-	toBlock uint64,
-	batchSize uint64,
-	rdw rdb.RedisWrapper,
-) error
-
 func panicf(fmtString string, vars ...interface{}) {
 	panic(fmt.Sprintf(fmtString, vars...))
 }
 
 func main() {
-	logger, err := zap.NewProduction()
-	if err != nil {
-		panicf("failed to init logger: %s", err.Error())
-	}
-
 	configFile := "./config/config.yaml"
 
 	conf, err := config.From(configFile)
@@ -50,7 +33,10 @@ func main() {
 		panicf("failed to read config %s: %s", configFile, err.Error())
 	}
 
-	logger.Info("mode", zap.String("mode", conf.Mode.String()))
+	logger, err := zap.NewProduction(zap.Fields(zap.String("serviceLabel", conf.Label), zap.String("mode", conf.Mode.String())))
+	if err != nil {
+		panicf("failed to init logger: %s", err.Error())
+	}
 
 	confJson, err := json.Marshal(conf)
 	if err != nil {
@@ -67,7 +53,7 @@ func main() {
 
 	logger.Info("created new ethclient", zap.String("url", conf.NodeUrl))
 
-	rdw, err := rdb.New(conf.RedisUrl)
+	rdw, err := rdb.New(conf.RedisUrl, conf.Label, logger)
 	if err != nil {
 		panicf("failed to create new redis wrapper client on %s: %s", conf.RedisUrl, err.Error())
 	}
@@ -76,28 +62,39 @@ func main() {
 
 	logger.Info("starting main loop")
 
-	var f modeFunc
 	switch conf.Mode {
 	case config.ModeTxs:
-		f = getAndSaveTxs
+		if err := getAndSaveTxs(
+			ctx,
+			logger,
+			client,
+			rdw,
+			conf.FromBlock,
+			conf.ToBlock,
+			conf.BatchSize,
+			conf.Rolling,
+		); err != nil {
+			logger.Error("got error in main loop", zap.String("error", err.Error()))
+
+			panicf("main loop failed: %s", err.Error())
+		}
 
 	case config.ModeLogTxs:
-		f = getAndSaveLogsTxs
-	}
+		if err := getAndSaveLogsTxs(
+			ctx,
+			logger,
+			client,
+			rdw,
+			conf.Addresses,
+			conf.FromBlock,
+			conf.ToBlock,
+			conf.BatchSize,
+			conf.Rolling,
+		); err != nil {
+			logger.Error("got error in main loop", zap.String("error", err.Error()))
 
-	if err := f(
-		ctx,
-		logger,
-		client,
-		conf.Addresses,
-		conf.FromBlock,
-		conf.ToBlock,
-		conf.BatchSize,
-		rdw,
-	); err != nil {
-		logger.Error("got error in main loop", zap.String("error", err.Error()))
-
-		panicf("main loop failed: %s", err.Error())
+			panicf("main loop failed: %s", err.Error())
+		}
 	}
 }
 
@@ -105,11 +102,11 @@ func getAndSaveTxs(
 	ctx context.Context,
 	logger *zap.Logger,
 	client *ethclient.Client,
-	addresses []common.Address,
+	rdw rdb.RedisWrapper,
 	fromBlock uint64,
 	toBlock uint64,
 	batchSize uint64,
-	rdw rdb.RedisWrapper,
+	rolling bool,
 ) error {
 	lastRecordedBlock, err := rdw.GetLastRecordedBlock(ctx)
 	if err != nil {
@@ -125,7 +122,7 @@ func getAndSaveTxs(
 
 	logger.Info("starting looping", zap.Uint64("lastRecordedBlock", lastRecordedBlock), zap.Uint64("toBlock", toBlock))
 
-	for lastRecordedBlock < toBlock {
+	for rolling || lastRecordedBlock < toBlock {
 		var thisFromBlock uint64
 		if firstRun {
 			thisFromBlock = lastRecordedBlock
@@ -145,7 +142,7 @@ func getAndSaveTxs(
 			thisToBlock = currentBlock
 		}
 
-		if thisToBlock > toBlock {
+		if !rolling && thisToBlock > toBlock {
 			thisToBlock = toBlock
 		}
 
@@ -190,7 +187,7 @@ func getAndSaveTxs(
 
 					datas[i] = entity.EthData{
 						Hash: strings.ToLower(tx.Hash().Hex()),
-						Data: strings.ToLower(tx.Hash().Hex()),
+						Data: hex.EncodeToString((tx.Data())),
 					}
 				}
 
@@ -199,7 +196,7 @@ func getAndSaveTxs(
 			}
 		}
 
-		logger.Info("saving to redis", zap.Int("len", len(dataByBlock)))
+		logger.Info("saving to redis", zap.Int("len", len(dataByBlock)), zap.Uint64("thisFromBlock", thisFromBlock), zap.Uint64("thisToBlock", thisToBlock))
 
 		if err := rdw.SaveTxs(ctx, dataByBlock); err != nil {
 			return errors.Wrap(err, "failed to save tx data to redis")
@@ -219,11 +216,12 @@ func getAndSaveLogsTxs(
 	ctx context.Context,
 	logger *zap.Logger,
 	client *ethclient.Client,
+	rdw rdb.RedisWrapper,
 	addresses []common.Address,
 	fromBlock uint64,
 	toBlock uint64,
 	batchSize uint64,
-	rdw rdb.RedisWrapper,
+	rolling bool,
 ) error {
 	lastRecordedBlock, err := rdw.GetLastRecordedBlock(ctx)
 	if err != nil {
@@ -239,7 +237,7 @@ func getAndSaveLogsTxs(
 
 	logger.Info("starting looping", zap.Uint64("lastRecordedBlock", lastRecordedBlock), zap.Uint64("toBlock", toBlock))
 
-	for lastRecordedBlock <= toBlock {
+	for rolling || lastRecordedBlock < toBlock {
 		var thisFromBlock uint64
 		if firstRun {
 			thisFromBlock = lastRecordedBlock
@@ -259,7 +257,7 @@ func getAndSaveLogsTxs(
 			thisToBlock = currentBlock
 		}
 
-		if thisToBlock > toBlock {
+		if !rolling && thisToBlock > toBlock {
 			thisToBlock = toBlock
 		}
 
@@ -305,7 +303,7 @@ func getAndSaveLogsTxs(
 			dataByAddr[addr][log.BlockNumber] = blockDatas
 		}
 
-		logger.Info("saving data to redis")
+		logger.Info("saving to redis", zap.Int("len", len(dataByAddr)), zap.Uint64("thisFromBlock", thisFromBlock), zap.Uint64("thisToBlock", thisToBlock))
 		if err := rdw.SaveLogTxs(ctx, dataByAddr); err != nil {
 			return errors.Wrapf(err, "failed to save data in range %d - %d", lastRecordedBlock, thisToBlock)
 		}
