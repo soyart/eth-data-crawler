@@ -53,7 +53,7 @@ func main() {
 
 	logger.Info("created new ethclient", zap.String("url", conf.NodeUrl))
 
-	rdw, err := rdb.New(conf.RedisUrl, conf.Label, logger)
+	rdw, err := rdb.New(conf.RedisUrl, conf.Label, conf.ModeConfig, logger)
 	if err != nil {
 		panicf("failed to create new redis wrapper client on %s: %s", conf.RedisUrl, err.Error())
 	}
